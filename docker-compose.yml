@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: taskly-postgres
+
+    # Ни одного пароля в этом файле. Всё приезжает из .env — compose читает
+    # его автоматически из той же папки. Тот же .env читает и приложение,
+    # так что настройки базы описаны ровно в одном месте.
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    # Слева — порт на вашей машине, справа — внутри контейнера.
+    # Внутри всегда стандартный 5432, наружу отдаём 5433, чтобы не
+    # конфликтовать с postgres, который у вас, возможно, уже установлен.
+    ports:
+      - "${POSTGRES_PORT}:5432"
+
+    # Volume — это папка, которая живёт вне контейнера, на диске вашей машины.
+    # Контейнер по своей природе одноразовый: удалили — всё, что внутри,
+    # исчезло. Данные postgres хранит в /var/lib/postgresql/data, и без
+    # volume каждый `docker compose down` стирал бы базу целиком.
+    volumes:
+      - taskly-pgdata:/var/lib/postgresql/data
+
+    # Healthcheck — команда, которой docker сам проверяет, живой ли сервис
+    # внутри контейнера. pg_isready — родная утилита postgres, отвечает
+    # на один вопрос: «база готова принимать соединения?».
+    #
+    # Зачем это нужно: контейнер считается «запущенным» через долю секунды,
+    # но postgres внутри в этот момент ещё разворачивается — секунду-две.
+    # Без healthcheck `make up` вернёт управление сразу, следом стартуют
+    # миграции и упадут с «connection refused».
+    #
+    # С healthcheck плюс флагом --wait в Makefile команда `make up` не отдаст
+    # вам терминал, пока pg_isready не ответит «готов».
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s # как часто спрашивать
+      timeout: 3s # сколько ждём ответа на одну попытку
+      retries: 15 # после скольких неудач считать контейнер больным
+
+volumes:
+  taskly-pgdata:
